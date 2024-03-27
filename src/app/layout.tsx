@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { cn } from "@/lib/utils";
+import { Analytics } from "@vercel/analytics/next";
 
 import "../styles/globals.css";
 
@@ -22,6 +23,7 @@ export default function RootLayout({
 		<html lang="en" className={cn(GeistSans.variable, GeistMono.variable)}>
 			<body>
 				<Providers>{children}</Providers>
+				<Analytics />
 			</body>
 			<Toaster />
 		</html>
