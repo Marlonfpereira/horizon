@@ -26,6 +26,7 @@ const config = {
 				branding: "hsl(var(--branding))",
 				"branding-dark": "hsl(var(--branding-dark))",
 				border: "hsl(var(--border))",
+				"border-dark": "hsl(var(--border-dark))",
 				input: "hsl(var(--input))",
 				ring: "hsl(var(--ring))",
 				background: "hsl(var(--background))",
