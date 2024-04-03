@@ -15,18 +15,50 @@ import {
 
 import { useTheme } from "next-themes";
 import { XXD } from "./xxd";
+import { Command, useVM } from "./hooks/use-vm";
+
+function entrypoint_line(code: string, entrypoint: string): number {
+	return (
+		code
+			.split("\n")
+			.findIndex((line) => line.trim().match(new RegExp(`${entrypoint}:`))) + 1
+	);
+}
+
+function get_line_at_pc(code: string, entrypoint: string, pc: number): number {
+	const lines = code.split("\n").map((line) => line.trim());
+	const entrypointIndex = lines.findIndex((line) => line === entrypoint);
+
+	if (entrypointIndex === -1) return -1;
+
+	let currentPC = 0;
+	const targetIndex = lines.slice(entrypointIndex).findIndex((line) => {
+		if (line !== "" && !line.startsWith(";")) {
+			currentPC++;
+		}
+		return currentPC === pc;
+	});
+
+	return targetIndex !== -1 ? entrypointIndex + targetIndex : -1;
+}
 
 export function VMIDE() {
+	const { error, hasIoInterruption, memory, sendCommand, vmStatus } = useVM({
+		memorySize: 1024 * 1024,
+	});
 	const [code, setCode] = useState(vm_asm);
-	const [pc, setPc] = useState(6);
 	const editorRef = useRef<editor.IStandaloneCodeEditor | undefined>(undefined);
 	const previousDecorationCollection = useRef<
 		editor.IEditorDecorationsCollection | undefined
 	>(undefined);
 	const { theme } = useTheme();
 
+	console.log(vmStatus);
+
 	useEffect(() => {
 		if (!editorRef.current) return;
+		const pc = get_line_at_pc(code, "main:", vmStatus?.pc ?? 1) + 1;
+		console.log(pc);
 
 		previousDecorationCollection.current?.clear();
 
@@ -62,7 +94,7 @@ export function VMIDE() {
 					options: decorationOptions,
 				},
 			]);
-	}, [pc]);
+	}, [vmStatus?.pc, code]);
 
 	return (
 		<ResizablePanelGroup
@@ -73,7 +105,7 @@ export function VMIDE() {
 				<header className="border-b border-border p-2 bg-accent">
 					<p className="text-md text-primary">Registers</p>
 				</header>
-				<RegisterTable registers={new Array(32).fill(0)} />
+				<RegisterTable registers={vmStatus?.registers} />
 			</ResizablePanel>
 			<ResizableHandle />
 			<ResizablePanel defaultSize={50}>
@@ -114,7 +146,11 @@ export function VMIDE() {
 								}}
 							/>
 							<div className="flex gap-2 p-2 bg-accent">
-								<Button variant="default" size="sm">
+								<Button
+									variant="default"
+									size="sm"
+									onClick={() => sendCommand(Command.STEP)}
+								>
 									Step
 								</Button>
 								<Button variant="destructive" size="sm">
@@ -141,28 +177,14 @@ export function VMIDE() {
 						<header className="border-b border-border p-2 bg-accent">
 							<p className="text-md text-primary">Memory</p>
 						</header>
-						<XXD
-							data={
-								/* 256 random values */
-								new Array(256)
-									.fill(0)
-									.map(() => Math.floor(Math.random() * 256))
-							}
-						/>
+						<XXD data={memory.slice(0, 255)} />
 					</ResizablePanel>
 					<ResizableHandle />
 					<ResizablePanel defaultSize={50}>
 						<header className="border-b border-border p-2 bg-accent">
 							<p className="text-md text-primary">Stack</p>
 						</header>
-						<XXD
-							data={
-								/* 256 random values */
-								new Array(256)
-									.fill(0)
-									.map(() => Math.floor(Math.random() * 256))
-							}
-						/>
+						<XXD data={new Uint32Array(255).slice(0, 255)} />
 					</ResizablePanel>
 				</ResizablePanelGroup>
 			</ResizablePanel>

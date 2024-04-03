@@ -1,6 +1,6 @@
 "use client";
 
-import { type FC, useState } from "react";
+import { type FC, useState, useEffect } from "react";
 import {
 	Table,
 	TableCaption,
@@ -12,9 +12,10 @@ import {
 } from "@/components/ui/table"; // Replace with your UI library import
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 type RegisterTableProps = {
-	registers: number[];
+	registers?: number[];
 };
 
 const registerNames = [
@@ -56,6 +57,25 @@ export const RegisterTable: FC<RegisterTableProps> = ({
 	registers: values,
 }) => {
 	const [valueFormat, setValueFormat] = useState("hex");
+	const [previousState, setPreviousState] = useState<number[] | undefined>(
+		undefined,
+	);
+	const [highlightedRows, setHighlightedRows] = useState<number[]>([]);
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: <explanation>
+	useEffect(() => {
+		if (!values) return;
+
+		const highlightedRows = values
+			.map((value, index) => {
+				if (!previousState) return false;
+				return value !== previousState[index] ? index : false;
+			})
+			.filter((value) => value !== false);
+
+		setHighlightedRows(highlightedRows as number[]);
+		setPreviousState(values);
+	}, [values]);
 
 	const formatValue = (value: number) => {
 		switch (valueFormat) {
@@ -107,8 +127,11 @@ export const RegisterTable: FC<RegisterTableProps> = ({
 					</TableRow>
 				</TableHeader>
 				<TableBody>
-					{values.map((value, index) => (
-						<TableRow key={window.crypto.randomUUID()}>
+					{values?.map((value, index) => (
+						<TableRow
+							key={crypto.randomUUID()}
+							className={cn(highlightedRows.includes(index) ? "bg-accent" : "")}
+						>
 							<TableCell>{registerNames[index]}</TableCell>
 							<TableCell>{formatValue(value)}</TableCell>
 						</TableRow>

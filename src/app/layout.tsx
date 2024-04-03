@@ -19,7 +19,6 @@ import { CelestialHubLogo } from "@/components/ux/logo";
 
 import { Binary, SquareTerminal } from "lucide-react";
 import Link from "next/link";
-import { headers } from "next/headers";
 
 export const metadata: Metadata = {
 	title: "Celestial Hub - Horizon",
