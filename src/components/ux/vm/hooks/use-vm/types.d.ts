@@ -33,8 +33,16 @@ interface InputIOInterruption {
 
 interface OutputIOInterruption {
 	type: "output";
-	payload: null;
+	payload: string;
 }
 
 /// Error Payload
-type ErrorPayload = string;
+interface ErrorPayload {
+	message: string;
+}
+
+interface InitPayload {
+	code: string;
+	memory_size: number;
+	stack_size: number;
+}

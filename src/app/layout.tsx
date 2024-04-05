@@ -19,6 +19,7 @@ import { CelestialHubLogo } from "@/components/ux/logo";
 
 import { Binary, SquareTerminal } from "lucide-react";
 import Link from "next/link";
+import { GlobalContextProvider } from "./global-context";
 
 export const metadata: Metadata = {
 	title: "Celestial Hub - Horizon",
@@ -98,20 +99,22 @@ export default function RootLayout({
 							</nav>
 						</aside>
 						<div className="flex flex-col">
-							<header className="sticky top-0 z-10 flex h-[53px] items-center gap-1 border-b bg-background px-4">
-								<h1 className="text-xl font-semibold">{currentPage}</h1>
-								<section className="ml-auto">
-									<ThemeToggle />
-								</section>
-							</header>
+							<GlobalContextProvider>
+								<header className="sticky top-0 z-10 flex h-[53px] items-center gap-1 border-b bg-background px-4">
+									<h1 className="text-xl font-semibold">{currentPage}</h1>
+									<section className="ml-auto">
+										<ThemeToggle />
+									</section>
+								</header>
 
-							{children}
+								{children}
+							</GlobalContextProvider>
 						</div>
 					</div>
 				</Providers>
 				<Analytics />
 			</body>
-			<Toaster />
+			<Toaster richColors />
 		</html>
 	);
 }

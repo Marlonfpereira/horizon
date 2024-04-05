@@ -2,32 +2,42 @@
 
 import { useEffect, useState } from "react";
 
-import type { ErrorPayload, StatusUpdatePayload, VMResponse } from "./types";
+import type {
+	ErrorPayload,
+	InitPayload,
+	StatusUpdatePayload,
+	VMResponse,
+} from "./types";
 
 import {
 	apply_memory_patch,
 	has_io_interruption,
 	is_error_response,
 	is_status_update_response,
+	is_input_io_interruption,
+	is_output_io_interruption,
 } from "./utils";
 import { toast } from "sonner";
 
 export enum Command {
 	STEP = "Step",
 	RUN = "Run",
+	INIT = "Init",
 }
 
 interface useVMProps {
 	memorySize: number;
+	code: string;
 }
 
-export function useVM({ memorySize }: useVMProps) {
+export function useVM({ memorySize, code }: useVMProps) {
 	const [ws, setWs] = useState<WebSocket | undefined>();
 	const [vmStatus, setVmStatus] = useState<StatusUpdatePayload | undefined>();
 	const [memory, setMemory] = useState<Uint32Array>(
 		new Uint32Array(memorySize),
 	);
 	const [error, setError] = useState<ErrorPayload | undefined>();
+	const [output, setOutput] = useState<string>("");
 
 	const [hasIoInterruption, setHasIoInterruption] = useState(false);
 
@@ -35,13 +45,24 @@ export function useVM({ memorySize }: useVMProps) {
 		const ws = new WebSocket("ws://localhost:9123/ws");
 		setWs(ws);
 
-		ws.onerror = (event) => {
-			toast.error("Failed to connect to the VM");
-			console.error(event);
-		};
-
 		ws.onopen = () => {
 			toast.success("Connected to the VM");
+
+			ws?.send(
+				JSON.stringify({
+					type: "Command",
+					payload: {
+						command: {
+							type: Command.INIT,
+							payload: {
+								code,
+								memory_size: memorySize,
+								stack_size: memorySize,
+							},
+						},
+					},
+				}),
+			);
 		};
 
 		ws.onmessage = (event) => {
@@ -64,17 +85,42 @@ export function useVM({ memorySize }: useVMProps) {
 		return () => {
 			ws.close();
 		};
-	}, [memory]);
+	}, [memory, memorySize, code]);
 
-	function sendCommand(command: Command) {
+	function sendCommand<T>(command: Command, payload?: T) {
 		ws?.send(
 			JSON.stringify({
 				type: "Command",
 				payload: {
-					command,
+					command: {
+						type: command,
+						payload: payload,
+					},
 				},
 			}),
 		);
+	}
+
+	if (vmStatus?.io_interruption && hasIoInterruption) {
+		const interruption = vmStatus.io_interruption;
+
+		if (is_input_io_interruption(interruption)) {
+			const prompt =
+				interruption.payload === "number" ? "Enter a number" : "Enter a string";
+
+			const response = window.prompt(prompt) || "0";
+			ws?.send(
+				JSON.stringify({
+					type: "Input",
+					payload: response,
+				}),
+			);
+		} else if (is_output_io_interruption(interruption)) {
+			setOutput((prev) => prev + interruption.payload);
+			// TODO: Notify the vm that the output has been read I think
+		}
+
+		setHasIoInterruption(false);
 	}
 
 	return {
@@ -83,5 +129,6 @@ export function useVM({ memorySize }: useVMProps) {
 		vmStatus,
 		error,
 		memory,
+		output,
 	};
 }

@@ -13,17 +13,10 @@ import {
 	ResizablePanelGroup,
 } from "@/components/ui/resizable";
 
-import { useTheme } from "next-themes";
 import { XXD } from "./xxd";
 import { Command, useVM } from "./hooks/use-vm";
-
-function entrypoint_line(code: string, entrypoint: string): number {
-	return (
-		code
-			.split("\n")
-			.findIndex((line) => line.trim().match(new RegExp(`${entrypoint}:`))) + 1
-	);
-}
+import { toast } from "sonner";
+import { useGlobalContext } from "@/app/global-context";
 
 function get_line_at_pc(code: string, entrypoint: string, pc: number): number {
 	const lines = code.split("\n").map((line) => line.trim());
@@ -43,22 +36,28 @@ function get_line_at_pc(code: string, entrypoint: string, pc: number): number {
 }
 
 export function VMIDE() {
-	const { error, hasIoInterruption, memory, sendCommand, vmStatus } = useVM({
-		memorySize: 1024 * 1024,
-	});
-	const [code, setCode] = useState(vm_asm);
+	const {
+		resultMIPSCode: { resultMIPSCode },
+		defaultMIPSCode: { defaultMIPSCode },
+	} = useGlobalContext();
+	const [code, setCode] = useState(resultMIPSCode ?? defaultMIPSCode);
+	const { error, hasIoInterruption, memory, sendCommand, vmStatus, output } =
+		useVM({
+			memorySize: 1024 * 1024,
+			code,
+		});
 	const editorRef = useRef<editor.IStandaloneCodeEditor | undefined>(undefined);
 	const previousDecorationCollection = useRef<
 		editor.IEditorDecorationsCollection | undefined
 	>(undefined);
-	const { theme } = useTheme();
 
-	console.log(vmStatus);
+	useEffect(() => {
+		if (error) toast.error(error.message);
+	}, [error]);
 
 	useEffect(() => {
 		if (!editorRef.current) return;
 		const pc = get_line_at_pc(code, "main:", vmStatus?.pc ?? 1) + 1;
-		console.log(pc);
 
 		previousDecorationCollection.current?.clear();
 
@@ -120,10 +119,7 @@ export function VMIDE() {
 								defaultValue={code}
 								options={{
 									readOnly: true,
-									theme:
-										theme === "dark" || theme === "system"
-											? "vitesse-dark"
-											: "vitesse-light",
+									theme: "vitesse-dark",
 								}}
 								onMount={(editor) => {
 									editorRef.current = editor;
@@ -138,11 +134,7 @@ export function VMIDE() {
 
 									shikiToMonaco(highlighter, monaco);
 
-									monaco.editor.setTheme(
-										theme === "dark" || theme === "system"
-											? "vitesse-dark"
-											: "vitesse-light",
-									);
+									monaco.editor.setTheme("vitesse-dark");
 								}}
 							/>
 							<div className="flex gap-2 p-2 bg-accent">
@@ -150,6 +142,7 @@ export function VMIDE() {
 									variant="default"
 									size="sm"
 									onClick={() => sendCommand(Command.STEP)}
+									disabled={hasIoInterruption}
 								>
 									Step
 								</Button>
@@ -165,7 +158,12 @@ export function VMIDE() {
 							<p className="text-md text-primary">Output</p>
 						</header>
 						<section className="flex flex-col gap-2 font-mono p-2">
-							<p>The sum of is: 4</p>
+							{output.split("\n").map((line, index) => (
+								// biome-ignore lint/suspicious/noArrayIndexKey: I don't mind
+								<p key={index} className="text-sm">
+									{line}
+								</p>
+							))}
 						</section>
 					</ResizablePanel>
 				</ResizablePanelGroup>
@@ -198,6 +196,10 @@ prompt: .asciiz "The sum of is: "
     .text
     .global main
 main:
+    ; Test load
+    li $v0, 0x10
+    sw $v0, 0($v0)
+
     ; Read number 1
     li $v0, 5
     syscall

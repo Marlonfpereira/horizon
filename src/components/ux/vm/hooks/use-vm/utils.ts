@@ -2,6 +2,7 @@ import type {
 	ErrorResponse,
 	IOInterruption,
 	InputIOInterruption,
+	OutputIOInterruption,
 	StatusUpdatePayload,
 	StatusUpdateResponse,
 	VMResponse,
@@ -78,4 +79,10 @@ export function is_input_io_interruption(
 	interruption: IOInterruption,
 ): interruption is InputIOInterruption {
 	return interruption.type === "input";
+}
+
+export function is_output_io_interruption(
+	interruption: IOInterruption,
+): interruption is OutputIOInterruption {
+	return interruption.type === "output";
 }
