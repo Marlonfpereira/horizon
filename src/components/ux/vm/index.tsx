@@ -14,9 +14,10 @@ import {
 } from "@/components/ui/resizable";
 
 import { XXD } from "./xxd";
-import { Command, useVM } from "./hooks/use-vm";
-import { toast } from "sonner";
 import { useGlobalContext } from "@/app/global-context";
+import { getAst } from "./services/@ast";
+import { useVM_ } from "@/lib/vm";
+import { toast } from "sonner";
 
 function get_line_at_pc(code: string, entrypoint: string, pc: number): number {
 	const lines = code.split("\n").map((line) => line.trim());
@@ -41,35 +42,44 @@ export function VMIDE() {
 		defaultMIPSCode: { defaultMIPSCode },
 	} = useGlobalContext();
 	const [code, setCode] = useState(resultMIPSCode ?? defaultMIPSCode);
-	const { error, hasIoInterruption, memory, sendCommand, vmStatus, output } =
-		useVM({
-			memorySize: 1024 * 1024,
-			code,
-		});
+	const { error, registers, memory, step, pc, output } = useVM_({
+		code,
+		memorySize: 1024 * 8,
+		stackSize: 1024 * 8,
+	});
+
 	const editorRef = useRef<editor.IStandaloneCodeEditor | undefined>(undefined);
 	const previousDecorationCollection = useRef<
 		editor.IEditorDecorationsCollection | undefined
 	>(undefined);
 
 	useEffect(() => {
-		if (error) toast.error(error.message);
+		async function fetchAst() {
+			console.log(await getAst(code));
+		}
+
+		fetchAst();
+	}, [code]);
+
+	useEffect(() => {
+		if (error) toast.error(error);
 	}, [error]);
 
 	useEffect(() => {
 		if (!editorRef.current) return;
-		const pc = get_line_at_pc(code, "main:", vmStatus?.pc ?? 1) + 1;
+		const current_pc = get_line_at_pc(code, "main:", pc) + 1;
 
 		previousDecorationCollection.current?.clear();
 
 		// Scroll to the line with the program counter
-		editorRef.current.revealLineInCenter(pc);
+		editorRef.current.revealLineInCenter(current_pc);
 
 		// Mark line as selected
 		editorRef.current.setSelection({
 			startColumn: 1,
 			endColumn: 1,
-			startLineNumber: pc,
-			endLineNumber: pc,
+			startLineNumber: current_pc,
+			endLineNumber: current_pc,
 		});
 
 		const decorationOptions = {
@@ -93,7 +103,7 @@ export function VMIDE() {
 					options: decorationOptions,
 				},
 			]);
-	}, [vmStatus?.pc, code]);
+	}, [pc, code]);
 
 	return (
 		<ResizablePanelGroup
@@ -104,7 +114,7 @@ export function VMIDE() {
 				<header className="border-b border-border p-2 bg-accent">
 					<p className="text-md text-primary">Registers</p>
 				</header>
-				<RegisterTable registers={vmStatus?.registers} />
+				<RegisterTable registers={registers} />
 			</ResizablePanel>
 			<ResizableHandle />
 			<ResizablePanel defaultSize={50}>
@@ -138,12 +148,7 @@ export function VMIDE() {
 								}}
 							/>
 							<div className="flex gap-2 p-2 bg-accent">
-								<Button
-									variant="default"
-									size="sm"
-									onClick={() => sendCommand(Command.STEP)}
-									disabled={hasIoInterruption}
-								>
+								<Button variant="default" size="sm" onClick={step}>
 									Step
 								</Button>
 								<Button variant="destructive" size="sm">
@@ -175,54 +180,17 @@ export function VMIDE() {
 						<header className="border-b border-border p-2 bg-accent">
 							<p className="text-md text-primary">Memory</p>
 						</header>
-						<XXD data={memory.slice(0, 255)} />
+						<XXD data={memory.slice(0, 256)} />
 					</ResizablePanel>
 					<ResizableHandle />
 					<ResizablePanel defaultSize={50}>
 						<header className="border-b border-border p-2 bg-accent">
 							<p className="text-md text-primary">Stack</p>
 						</header>
-						<XXD data={new Uint32Array(255).slice(0, 255)} />
+						<XXD data={new Uint32Array(256).slice(0, 256)} />
 					</ResizablePanel>
 				</ResizablePanelGroup>
 			</ResizablePanel>
 		</ResizablePanelGroup>
 	);
 }
-
-const vm_asm = `    .data
-prompt: .asciiz "The sum of is: "
-
-    .text
-    .global main
-main:
-    ; Test load
-    li $v0, 0x10
-    sw $v0, 0($v0)
-
-    ; Read number 1
-    li $v0, 5
-    syscall
-    move $t0, $v0
-
-    ; Read number 2
-    li $v0, 5
-    syscall
-    move $t1, $v0
-
-    ; Add numbers
-    add $t2, $t0, $t1
-
-    ; Print prompt
-    li $v0, 4
-    la $a0, prompt
-    syscall
-
-    ; Print added value
-    li $v0, 1
-    move $a0, $t2
-    syscall
-
-    ; Exit
-    li $v0, 0xA
-    syscall`;
