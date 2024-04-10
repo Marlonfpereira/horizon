@@ -17,12 +17,18 @@ interface GlobalContextType {
 	};
 }
 
-const sample_etac_code = `t1: i8 = 1i8
-t2: i8 = 2i8
-t3: i8 = t1 + t2`;
+const sample_etac_code = `t1: i32 = 0
+start:
+  t1: i32 = t1 + 1
+  if t1 < 10 goto start
+  goto done
+
+done:
+  t2: str = "done!"
+  call write_string(t2)`;
 
 const vm_asm = `    .data
-prompt: .asciiz "The sum of is: "
+prompt: .asciiz "The sum is: "
 
     .text
     .global main

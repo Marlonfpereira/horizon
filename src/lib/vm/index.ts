@@ -308,6 +308,46 @@ class VM {
 				}
 				break;
 			}
+			case "blt": {
+				if (is_register(args[0]) && is_label(args[2])) {
+					const source1 = args[0].value;
+					const label = args[2].value;
+
+					const source1Position = get_register_position(
+						source1.name as RegisterName,
+					);
+					const label_position = this.search_entrypoint(label, this.statements);
+					if (label_position === -1)
+						throw new Error(`Could not find label: ${label}`);
+
+					if (is_register(args[1])) {
+						const source2 = args[1].value;
+
+						const source2Position = get_register_position(
+							source2.name as RegisterName,
+						);
+
+						console.log(source2);
+						console.log(
+							`${this.registers[source1Position]} < ${this.registers[source2Position]} ?`,
+						);
+						if (
+							this.registers[source1Position] < this.registers[source2Position]
+						) {
+							this.change_pc(label_position);
+						}
+					} else if (is_immediate(args[1])) {
+						const immediate = args[1].value;
+
+						console.log(`${this.registers[source1Position]} < ${immediate} ?`);
+						if (this.registers[source1Position] < immediate) {
+							this.change_pc(label_position);
+						}
+					}
+				}
+
+				break;
+			}
 			case "sub": {
 				if (
 					is_register(args[0]) &&
@@ -394,14 +434,18 @@ class VM {
 				break;
 			}
 			case "j": {
-				if (is_immediate(args[0])) {
+				if (is_label(args[0])) {
 					const address = args[0].value;
 
-					if (address >= this.statements.length) {
-						throw new Error(`Jump address out of range: ${address}`);
-					}
+					const label_position = this.search_entrypoint(
+						address,
+						this.statements,
+					);
 
-					this.change_pc(address);
+					if (label_position === -1)
+						throw new Error(`Could not find label: ${address}`);
+
+					this.change_pc(label_position + 1);
 				}
 
 				break;
