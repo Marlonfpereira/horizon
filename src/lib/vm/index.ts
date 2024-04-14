@@ -11,11 +11,19 @@ import type {
 	Variable,
 } from "@celestial-hub/orions-belt/mips-ast";
 import { useEffect, useRef, useState } from "react";
+import { CStringDecoder } from "./cstring-decoder";
 
 interface VMProps {
 	code: string;
 	memorySize: number;
 	stackSize: number;
+}
+
+enum SYSCALL {
+	PRINT_INT = 1,
+	PRINT_STRING = 4,
+	READ_INT = 5,
+	READ_STRING = 8,
 }
 
 export function useVM_({ code, memorySize, stackSize }: VMProps) {
@@ -52,14 +60,19 @@ export function useVM_({ code, memorySize, stackSize }: VMProps) {
 				await vm.current.loadCode(code);
 				apply_updates();
 			} catch (err) {
-				const error = err as Error;
+				const error = err as { message: string };
 				setError(error.message);
 			}
 		}
 
 		if (vm.current === undefined) {
 			vm.current = new VM({ memorySize, stackSize });
-			loadCode(code);
+			try {
+				loadCode(code);
+			} catch (err) {
+				const error = err as { message: string };
+				setError(error.message);
+			}
 		}
 
 		return () => {
@@ -85,7 +98,7 @@ export function useVM_({ code, memorySize, stackSize }: VMProps) {
 			vm.current.step();
 			apply_updates();
 		} catch (err) {
-			const error = err as Error;
+			const error = err as { message: string };
 			setError(error.message);
 		}
 	}
@@ -224,24 +237,66 @@ class VM {
 				const code = this.registers[get_register_position("$v0")];
 
 				switch (code) {
-					case 1: {
+					case SYSCALL.PRINT_INT: {
 						const value = this.registers[get_register_position("$a0")];
 						this.updates.output = value.toString();
 						break;
 					}
-					case 4: {
+					case SYSCALL.PRINT_STRING: {
 						const address = this.registers[get_register_position("$a0")];
-						const string = new TextDecoder().decode(this.memory.slice(address));
+						const string = new CStringDecoder().decode(
+							this.memory.slice(address),
+						);
 						this.updates.output = string;
 						break;
 					}
-					case 5: {
+					case SYSCALL.READ_INT: {
 						let value = Number.NaN;
 						while (Number.isNaN(value)) {
 							value = Number(window.prompt("Enter a number:"));
 						}
 
 						this.change_register("$v0", value);
+						break;
+					}
+					case SYSCALL.READ_STRING: {
+						const address = this.registers[get_register_position("$a0")];
+						const length = this.registers[get_register_position("$a1")];
+						const prompt = `Enter a string of length ${length}:`;
+
+						let value: null | string = null;
+						while (value === null) {
+							value = window.prompt(prompt);
+						}
+
+						// Follows semantics of UNIX 'fgets'. For specified length n, string can be no longer than n-1.
+						// If less than that, adds newline to end. In either case, then pads with null byte If n = 1,
+						// input is ignored and null byte placed at buffer address. If n < 1, input is ignored and nothing is written to the buffer.
+						if (length > 0) {
+							if (value.length >= length) {
+								// Cuts off the string to fit the buffer size minus the null terminator
+								value = value.substring(0, length - 1);
+							}
+
+							for (let i = 0; i < value.length; i++) {
+								this.change_memory(address + i, value.charCodeAt(i));
+							}
+
+							// If the input is shorter than the maximum length, append a newline
+							if (value.length < length - 1) {
+								this.change_memory(address + value.length, "\n".charCodeAt(0));
+								this.change_memory(address + value.length + 1, 0); // Null-terminate after newline
+							} else {
+								// Null-terminate the string in the memory
+								this.change_memory(address + value.length, 0);
+							}
+						} else if (length === 1) {
+							// If length is 1, only a null byte is placed
+							this.change_memory(address, 0);
+						}
+						// If length < 1, nothing is written
+
+						this.change_register("$v0", address);
 						break;
 					}
 					default:
@@ -254,9 +309,6 @@ class VM {
 					const destination = args[0].value;
 					const source = args[1].value;
 
-					const destinationPosition = get_register_position(
-						destination.name as RegisterName,
-					);
 					const sourcePosition = get_register_position(
 						source.name as RegisterName,
 					);
@@ -327,22 +379,15 @@ class VM {
 							source2.name as RegisterName,
 						);
 
-						console.log(source2);
-						console.log(
-							`${this.registers[source1Position]} < ${this.registers[source2Position]} ?`,
-						);
 						if (
 							this.registers[source1Position] < this.registers[source2Position]
-						) {
+						)
 							this.change_pc(label_position);
-						}
 					} else if (is_immediate(args[1])) {
 						const immediate = args[1].value;
 
-						console.log(`${this.registers[source1Position]} < ${immediate} ?`);
-						if (this.registers[source1Position] < immediate) {
+						if (this.registers[source1Position] < immediate)
 							this.change_pc(label_position);
-						}
 					}
 				}
 
@@ -529,12 +574,11 @@ class VM {
 function variable_to_bytes({ type, value }: Variable): Uint8Array {
 	switch (type) {
 		case "Asciiz": {
-			console.log("value:", value);
-			if (is_string(value)) {
-				console.log("value:", value);
-				return new TextEncoder().encode(value.value);
-			}
-
+			if (is_string(value)) return new TextEncoder().encode(value.value);
+			throw new Error("Unsupported value type");
+		}
+		case "Space": {
+			if (is_bytes(value)) return new Uint8Array(value.value);
 			throw new Error("Unsupported value type");
 		}
 		default:
@@ -562,6 +606,10 @@ function is_label(
 
 function is_string(value: Value): value is { kind: "string"; value: string } {
 	return value.kind === "string";
+}
+
+function is_bytes(value: Value): value is { kind: "bytes"; value: number } {
+	return value.kind === "bytes";
 }
 
 function unreachable(): never {

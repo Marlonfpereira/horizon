@@ -17,15 +17,11 @@ interface GlobalContextType {
 	};
 }
 
-const sample_etac_code = `t1: i32 = 0
-start:
-  t1: i32 = t1 + 1
-  if t1 < 10 goto start
-  goto done
-
-done:
-  t2: str = "done!"
-  call write_string(t2)`;
+const sample_etac_code = `
+t0: str = call read_string(50u32)
+call write_string("you have provided the following: ")
+call write_string(t0)
+`.trim();
 
 const vm_asm = `    .data
 prompt: .asciiz "The sum is: "

@@ -13,6 +13,17 @@ import { getHighlighter } from "shiki";
 import { shikiToMonaco } from "@shikijs/monaco";
 import { useRouter } from "next/navigation";
 import { useGlobalContext } from "@/app/global-context";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectLabel,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import { samples } from "@/lib/examples";
+import { SelectGroup } from "@radix-ui/react-select";
+import { titleCase } from "@/lib/utils";
 
 export function IDE() {
 	const router = useRouter();
@@ -22,10 +33,13 @@ export function IDE() {
 	} = useGlobalContext();
 
 	async function transpileCode() {
-		const result = await transpile(code).catch((err) => {
-			toast.error(err?.message ?? "An error occurred");
-		});
-		if (result) setResultMIPSCode(result);
+		try {
+			const result = await transpile(code);
+			if (result) setResultMIPSCode(result);
+		} catch (error) {
+			toast.error("An error occurred while transpiling the code.");
+			toast.error((error as Error).message);
+		}
 	}
 
 	function loadToVm() {
@@ -39,6 +53,23 @@ export function IDE() {
 					<div className="flex flex-col w-full h-full">
 						<header className="flex flex-row justify-between p-2 bg-accent">
 							<p className="text-md text-primary">ETAC</p>
+							<Select onValueChange={setCode}>
+								<SelectTrigger className="w-[180px]">
+									<SelectValue placeholder="Code" />
+									<SelectContent>
+										{Object.entries(samples).map(([key, value]) => (
+											<SelectGroup>
+												<SelectLabel>{titleCase(key)}</SelectLabel>
+												{Object.entries(value).map(([key, value]) => (
+													<SelectItem key={key} value={value}>
+														{titleCase(key)}
+													</SelectItem>
+												))}
+											</SelectGroup>
+										))}
+									</SelectContent>
+								</SelectTrigger>
+							</Select>
 							<Button
 								size="sm"
 								variant="outline"
@@ -114,7 +145,3 @@ function EditorWrapper({
 		/>
 	);
 }
-
-const etac_code = `t1: i8 = 1i8
-t2: i8 = 2i8
-t3: i8 = t1 + t2`;
