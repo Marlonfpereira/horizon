@@ -5,7 +5,7 @@ import {
 	ResizablePanel,
 	ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import Editor from "@monaco-editor/react";
+import Editor, { useMonaco } from "@monaco-editor/react";
 import { transpile } from "./services/@transpile";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,9 @@ import {
 import { samples } from "@/lib/examples";
 import { SelectGroup } from "@radix-ui/react-select";
 import { titleCase } from "@/lib/utils";
+import { useTheme } from "next-themes";
+import { useEffect, useRef } from "react";
+import { editor } from "monaco-editor";
 
 export function IDE() {
 	const router = useRouter();
@@ -51,25 +54,29 @@ export function IDE() {
 			<ResizablePanelGroup direction="horizontal">
 				<ResizablePanel defaultSize={50}>
 					<div className="flex flex-col w-full h-full">
-						<header className="flex flex-row justify-between p-2 bg-accent">
-							<p className="text-md text-primary">ETAC</p>
-							<Select onValueChange={setCode}>
-								<SelectTrigger className="w-[180px]">
-									<SelectValue placeholder="Code" />
-									<SelectContent>
-										{Object.entries(samples).map(([key, value]) => (
-											<SelectGroup>
-												<SelectLabel>{titleCase(key)}</SelectLabel>
-												{Object.entries(value).map(([key, value]) => (
-													<SelectItem key={key} value={value}>
-														{titleCase(key)}
-													</SelectItem>
-												))}
-											</SelectGroup>
-										))}
-									</SelectContent>
-								</SelectTrigger>
-							</Select>
+						<header className="flex flex-row justify-between items-center p-2 bg-accent">
+							<div className="flex flex-row gap-2 items-center">
+								<p className="text-md text-primary">ETAC</p>
+								<Select onValueChange={setCode}>
+									<SelectTrigger className="w-[180px]">
+										<SelectValue placeholder="Code" />
+										<SelectContent>
+											{Object.entries(samples).map(([key, value]) => (
+												<SelectGroup>
+													<SelectLabel>
+														{titleCase(key).replaceAll("_", " ")}
+													</SelectLabel>
+													{Object.entries(value).map(([key, value]) => (
+														<SelectItem key={key} value={value}>
+															{titleCase(key).replaceAll("_", " ")}
+														</SelectItem>
+													))}
+												</SelectGroup>
+											))}
+										</SelectContent>
+									</SelectTrigger>
+								</Select>
+							</div>
 							<Button
 								size="sm"
 								variant="outline"
@@ -88,7 +95,7 @@ export function IDE() {
 				<ResizableHandle withHandle />
 				<ResizablePanel defaultSize={50}>
 					<div className="flex flex-col w-full h-full">
-						<header className="flex flex-row justify-between p-2 bg-accent">
+						<header className="flex flex-row justify-between items-center p-2 bg-accent">
 							<p className="text-md text-primary">MIPS</p>
 							<Button
 								size="sm"
@@ -118,13 +125,22 @@ function EditorWrapper({
 	onChange?: (value: string | undefined) => void;
 	readOnly?: boolean;
 }) {
+	const theme = useTheme();
+	const monaco = useMonaco();
+
+	useEffect(() => {
+		monaco?.editor.setTheme(
+			theme.theme === "light" ? "vitesse-light" : "vitesse-dark",
+		);
+	}, [theme, monaco?.editor]);
+
 	return (
 		<Editor
 			language={language}
 			value={code}
 			options={{
 				readOnly,
-				theme: "vitesse-dark",
+				theme: theme.theme === "light" ? "vitesse-light" : "vitesse-dark",
 				minimap: {
 					enabled: false,
 				},

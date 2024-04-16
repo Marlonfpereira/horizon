@@ -18,6 +18,7 @@ import { useGlobalContext } from "@/app/global-context";
 import { getAst } from "./services/@ast";
 import { useVM_ } from "@/lib/vm";
 import { toast } from "sonner";
+import { Slider } from "@/components/ui/slider";
 
 function get_line_at_pc(code: string, entrypoint: string, pc: number): number {
 	const lines = code.split("\n").map((line) => line.trim());
@@ -42,7 +43,19 @@ export function VMIDE() {
 		defaultMIPSCode: { defaultMIPSCode },
 	} = useGlobalContext();
 	const [code, setCode] = useState(resultMIPSCode ?? defaultMIPSCode);
-	const { error, registers, memory, step, pc, output } = useVM_({
+	const {
+		error,
+		registers,
+		memory,
+		step,
+		pc,
+		output,
+		reset,
+		run,
+		halted,
+		tickInterval,
+		setTickInterval,
+	} = useVM_({
 		code,
 		memorySize: 1024 * 8,
 		stackSize: 1024 * 8,
@@ -148,29 +161,40 @@ export function VMIDE() {
 								}}
 							/>
 							<div className="flex gap-2 p-2 bg-accent">
-								<Button variant="default" size="sm" onClick={step}>
+								<Button
+									variant="default"
+									size="sm"
+									onClick={step}
+									disabled={halted}
+								>
 									Step
 								</Button>
-								<Button variant="destructive" size="sm">
+								<Button
+									variant="secondary"
+									size="sm"
+									onClick={run}
+									disabled={halted}
+								>
+									Run
+								</Button>
+								<Button variant="destructive" size="sm" onClick={reset}>
 									Reset
 								</Button>
+								<div className="flex flex-row gap-2 w-1/3">
+									<Slider
+										defaultValue={[tickInterval]}
+										onValueChange={(value) => setTickInterval(value[0])}
+										min={0}
+										max={1000}
+										step={10}
+									/>
+									<p>{tickInterval}ms</p>
+								</div>
 							</div>
 						</div>
 					</ResizablePanel>
 					<ResizableHandle />
-					<ResizablePanel defaultSize={25}>
-						<header className="border-b border-border p-2 bg-accent">
-							<p className="text-md text-primary">Output</p>
-						</header>
-						<section className="flex flex-col gap-2 font-mono p-2">
-							{output.split("\n").map((line, index) => (
-								// biome-ignore lint/suspicious/noArrayIndexKey: I don't mind
-								<p key={index} className="text-sm">
-									{line}
-								</p>
-							))}
-						</section>
-					</ResizablePanel>
+					<AutoScrollSection output={output} />
 				</ResizablePanelGroup>
 			</ResizablePanel>
 			<ResizableHandle />
@@ -192,5 +216,33 @@ export function VMIDE() {
 				</ResizablePanelGroup>
 			</ResizablePanel>
 		</ResizablePanelGroup>
+	);
+}
+
+function AutoScrollSection({ output }: { output: string }) {
+	const endOfMessagesRef = useRef<HTMLDivElement | null>(null);
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: Dependency array includes output to react to its changes
+	useEffect(() => {
+		if (endOfMessagesRef.current) {
+			endOfMessagesRef.current.scrollIntoView({ behavior: "smooth" });
+		}
+	}, [endOfMessagesRef, output]);
+
+	return (
+		<ResizablePanel defaultSize={25}>
+			<header className="border-b border-border p-2 bg-accent">
+				<p className="text-md text-primary">Output</p>
+			</header>
+			<section className="flex flex-col grow font-mono p-2 overflow-scroll">
+				{output.split("\n").map((line: string, index: number) => (
+					// biome-ignore lint/suspicious/noArrayIndexKey: I don't mind
+					<p key={index} className="text-sm">
+						{line}
+					</p>
+				))}
+				<div ref={endOfMessagesRef} /> {/* Invisible element to scroll to */}
+			</section>
+		</ResizablePanel>
 	);
 }

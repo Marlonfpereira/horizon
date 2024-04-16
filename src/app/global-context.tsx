@@ -18,43 +18,17 @@ interface GlobalContextType {
 }
 
 const sample_etac_code = `
-t0: str = call read_string(50u32)
-call write_string("you have provided the following: ")
-call write_string(t0)
+call write_string("Hello, World!\\n")
 `.trim();
 
-const vm_asm = `    .data
-prompt: .asciiz "The sum is: "
+const vm_asm = `
+.data
 
     .text
     .global main
 main:
-    ; Read number 1
-    li $v0, 5
-    syscall
-    move $t0, $v0
-
-    ; Read number 2
-    li $v0, 5
-    syscall
-    move $t1, $v0
-
-    ; Add numbers
-    add $t2, $t0, $t1
-
-    ; Print prompt
-    li $v0, 4
-    la $a0, prompt
-    syscall
-
-    ; Print added value
-    li $v0, 1
-    move $a0, $t2
-    syscall
-
-    ; Exit
-    li $v0, 0xA
-    syscall`;
+    halt
+`.trim();
 
 export const GlobalContext = createContext<GlobalContextType>(
 	{} as GlobalContextType,

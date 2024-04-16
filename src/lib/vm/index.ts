@@ -12,6 +12,8 @@ import type {
 } from "@celestial-hub/orions-belt/mips-ast";
 import { useEffect, useRef, useState } from "react";
 import { CStringDecoder } from "./cstring-decoder";
+import { toast } from "sonner";
+import { CStringEncoder } from "./cstring-encoder";
 
 interface VMProps {
 	code: string;
@@ -33,8 +35,24 @@ export function useVM_({ code, memorySize, stackSize }: VMProps) {
 	const [registers, setRegisters] = useState<number[]>(new Array(32).fill(0));
 	const [error, setError] = useState<string | undefined>();
 	const [output, setOutput] = useState<string>("");
+	const [halted, setHalted] = useState<boolean>(false);
 	const [pc, setPc] = useState<number>(0);
+	const [tickInterval, setTickInterval] = useState<number>(100);
 	const vm = useRef<VM | undefined>(undefined);
+	const interval = useRef<NodeJS.Timeout | undefined>(undefined);
+
+	useEffect(() => {
+		if (interval.current) {
+			clearInterval(interval.current);
+			interval.current = setInterval(() => {
+				if (vm.current?.is_halted() || vm.current?.is_interrupted()) {
+					clearInterval(interval.current);
+					return;
+				}
+				step();
+			}, tickInterval);
+		}
+	}, [tickInterval]);
 
 	function apply_register_patch(patch: number[]) {
 		const newRegisters = [...registers];
@@ -90,6 +108,31 @@ export function useVM_({ code, memorySize, stackSize }: VMProps) {
 			apply_memory_patch(updates.memory_patch);
 		if (updates.pc) setPc(updates.pc);
 		if (updates?.output) setOutput((output) => output + updates.output);
+		if (updates?.halted) setHalted(updates.halted);
+	}
+
+	async function run() {
+		try {
+			interval.current = setInterval(() => {
+				if (vm.current === undefined) return;
+
+				if (vm.current.is_halted() || vm.current.is_interrupted()) {
+					clearInterval(interval.current);
+					return;
+				}
+
+				try {
+					vm.current.step();
+					apply_updates();
+				} catch (err) {
+					const error = err as { message: string };
+					setError(error.message);
+				}
+			}, tickInterval);
+		} catch (err) {
+			const error = err as { message: string };
+			setError(error.message);
+		}
 	}
 
 	function step() {
@@ -103,13 +146,38 @@ export function useVM_({ code, memorySize, stackSize }: VMProps) {
 		}
 	}
 
+	function reset() {
+		try {
+			if (vm.current === undefined) return;
+
+			vm.current.reset();
+			vm.current.loadCode(code).then(() => {
+				toast.success("VM has been reset");
+				setOutput("");
+				setPc(0);
+				setRegisters(new Array(32).fill(0));
+				setMemory(new Uint32Array(memorySize));
+				setHalted(false);
+				if (interval.current) clearInterval(interval.current);
+			});
+		} catch (err) {
+			const error = err as { message: string };
+			setError(error.message);
+		}
+	}
+
 	return {
 		error,
 		output,
 		memory,
 		registers,
 		step,
+		run,
 		pc,
+		reset,
+		halted,
+		tickInterval,
+		setTickInterval,
 	};
 }
 
@@ -128,6 +196,8 @@ interface Updates {
 	output?: string;
 
 	pc: number;
+
+	halted?: boolean;
 }
 
 class VM {
@@ -136,6 +206,8 @@ class VM {
 	private memory: Uint8Array;
 	private stack: Uint8Array;
 	private statements: Statement[] = [];
+	private halted = false;
+	private interrupted = false;
 	/** A map of variable name to memory address */
 	private variable_lookup: Map<string, number> = new Map();
 
@@ -206,19 +278,20 @@ class VM {
 	}
 
 	private evalInstruction({ kind, args }: Instruction) {
+		if (this.halted) throw new Error("VM is halted");
+		if (this.interrupted) return;
+
 		switch (kind) {
 			case "li": {
 				if (is_register(args[0]) && is_immediate(args[1])) {
-					console.log("li args:", args);
 					const register = args[0].value;
 					const immediate = args[1].value;
 
 					this.change_register(register.name as RegisterName, immediate);
-					return;
+					break;
 				}
 
-				unreachable();
-				break;
+				throw new Error(`Invalid arguments: ${args.map((arg) => arg.kind)}`);
 			}
 			case "la": {
 				if (is_register(args[0]) && is_label(args[1])) {
@@ -226,7 +299,6 @@ class VM {
 					const label = args[1].value;
 
 					const address = this.variable_lookup.get(label);
-					console.log("la args:", args);
 					if (address === undefined) throw new Error(`Unknown label: ${label}`);
 
 					this.change_register(register.name as RegisterName, address);
@@ -251,15 +323,18 @@ class VM {
 						break;
 					}
 					case SYSCALL.READ_INT: {
+						this.interrupted = true;
 						let value = Number.NaN;
 						while (Number.isNaN(value)) {
 							value = Number(window.prompt("Enter a number:"));
 						}
 
 						this.change_register("$v0", value);
+						this.interrupted = false;
 						break;
 					}
 					case SYSCALL.READ_STRING: {
+						this.interrupted = true;
 						const address = this.registers[get_register_position("$a0")];
 						const length = this.registers[get_register_position("$a1")];
 						const prompt = `Enter a string of length ${length}:`;
@@ -296,6 +371,7 @@ class VM {
 						}
 						// If length < 1, nothing is written
 
+						this.interrupted = false;
 						this.change_register("$v0", address);
 						break;
 					}
@@ -322,116 +398,111 @@ class VM {
 			}
 			case "jal": {
 				if (is_label(args[0])) {
-					const label = args[0].value;
-					const label_position = this.search_entrypoint(label, this.statements);
-					if (label_position === -1)
-						throw new Error(`Could not find label: ${label}`);
-
 					this.change_register("$ra", this.pc);
-					this.change_pc(label_position);
+					this.change_pc(this.get_value(args[0]));
+					break;
 				}
-				break;
+
+				throw new Error(`Invalid arguments: ${args.map((arg) => arg.kind)}`);
 			}
-			case "beq": {
-				if (is_register(args[0]) && is_register(args[1]) && is_label(args[2])) {
-					const source1 = args[0].value;
-					const source2 = args[1].value;
-					const label = args[2].value;
+			case "beqz":
+			case "bnez":
+			case "bltz":
+			case "bgtz":
+			case "blez":
+			case "bgez": {
+				if (is_register(args[0]) && is_label(args[1])) {
+					const operation = (a: number) => {
+						switch (kind) {
+							case "beqz":
+								return a === 0;
+							case "blez":
+								return a <= 0;
+							case "bnez":
+								return a !== 0;
+							case "bltz":
+								return a < 0;
+							case "bgtz":
+								return a > 0;
+							case "bgez":
+								return a >= 0;
+						}
+					};
 
-					const source1Position = get_register_position(
-						source1.name as RegisterName,
-					);
-					const source2Position = get_register_position(
-						source2.name as RegisterName,
-					);
+					const source_value = this.get_value(args[0]);
+					const label_position = this.get_value(args[1]);
 
-					if (
-						this.registers[source1Position] === this.registers[source2Position]
-					) {
-						const label_position = this.search_entrypoint(
-							label,
-							this.statements,
-						);
-						if (label_position === -1)
-							throw new Error(`Could not find label: ${label}`);
-
-						this.change_pc(label_position);
-					}
+					if (operation(source_value)) this.change_pc(label_position + 1);
+					break;
 				}
-				break;
+
+				throw new Error(`Invalid arguments: ${args.map((arg) => arg.kind)}`);
 			}
-			case "blt": {
+			case "beq":
+			case "bne":
+			case "blt":
+			case "bgt":
+			case "ble":
+			case "bge": {
 				if (is_register(args[0]) && is_label(args[2])) {
-					const source1 = args[0].value;
-					const label = args[2].value;
+					const operation = (a: number, b: number) => {
+						switch (kind) {
+							case "beq":
+								return a === b;
+							case "ble":
+								return a <= b;
+							case "bne":
+								return a !== b;
+							case "blt":
+								return a < b;
+							case "bgt":
+								return a > b;
+							case "bge":
+								return a >= b;
+						}
+					};
 
-					const source1Position = get_register_position(
-						source1.name as RegisterName,
-					);
-					const label_position = this.search_entrypoint(label, this.statements);
-					if (label_position === -1)
-						throw new Error(`Could not find label: ${label}`);
+					const destination = this.get_value(args[0]);
+					const source = this.get_value(args[1]);
+					const label_position = this.get_value(args[2]);
 
-					if (is_register(args[1])) {
-						const source2 = args[1].value;
+					if (operation(destination, source))
+						this.change_pc(label_position + 1);
 
-						const source2Position = get_register_position(
-							source2.name as RegisterName,
-						);
-
-						if (
-							this.registers[source1Position] < this.registers[source2Position]
-						)
-							this.change_pc(label_position);
-					} else if (is_immediate(args[1])) {
-						const immediate = args[1].value;
-
-						if (this.registers[source1Position] < immediate)
-							this.change_pc(label_position);
-					}
+					break;
 				}
 
-				break;
+				throw new Error(`Invalid arguments: ${args.map((arg) => arg.kind)}`);
 			}
-			case "sub": {
-				if (
-					is_register(args[0]) &&
-					is_register(args[1]) &&
-					is_register(args[2])
-				) {
-					const destination = args[0].value;
-					const source1 = args[1].value;
-					const source2 = args[2].value;
-
-					const result =
-						this.registers[
-							get_register_position(source1.name as RegisterName)
-						] -
-						this.registers[get_register_position(source2.name as RegisterName)];
-
-					this.change_register(destination.name as RegisterName, result);
-				}
-				break;
-			}
+			case "sub":
+			case "div":
+			case "mul":
 			case "add": {
-				if (
-					is_register(args[0]) &&
-					is_register(args[1]) &&
-					is_register(args[2])
-				) {
-					const destination = args[0].value;
-					const source1 = args[1].value;
-					const source2 = args[2].value;
+				const operation = (a: number, b: number) => {
+					switch (kind) {
+						case "sub":
+							return a - b;
+						case "div":
+							return Math.trunc(a / b);
+						case "mul":
+							return a * b;
+						case "add":
+							return a + b;
+					}
+				};
 
-					const result =
-						this.registers[
-							get_register_position(source1.name as RegisterName)
-						] +
-						this.registers[get_register_position(source2.name as RegisterName)];
+				if (is_register(args[0]) && is_register(args[1])) {
+					const destination = args[0].value;
+					const source1 = this.get_value(args[1]);
+					const source2 = this.get_value(args[2]);
+
+					const result = operation(source1, source2);
 
 					this.change_register(destination.name as RegisterName, result);
+					break;
 				}
-				break;
+
+				throw new Error(`Invalid arguments: ${args.map((arg) => arg.kind)}`);
 			}
 			case "jr": {
 				if (is_register(args[0])) {
@@ -441,54 +512,9 @@ class VM {
 				}
 				break;
 			}
-			case "addi": {
-				if (
-					is_register(args[0]) &&
-					is_register(args[1]) &&
-					is_immediate(args[2])
-				) {
-					const destination = args[0].value;
-					const source = args[1].value;
-					const immediate = args[2].value;
-
-					const result =
-						this.registers[get_register_position(source.name as RegisterName)] +
-						immediate;
-
-					this.change_register(destination.name as RegisterName, result);
-				}
-				break;
-			}
-			case "andi": {
-				if (
-					is_register(args[0]) &&
-					is_register(args[1]) &&
-					is_immediate(args[2])
-				) {
-					const destination = args[0].value;
-					const source = args[1].value;
-					const immediate = args[2].value;
-
-					const result =
-						this.registers[get_register_position(source.name as RegisterName)] &
-						immediate;
-
-					this.change_register(destination.name as RegisterName, result);
-				}
-
-				break;
-			}
 			case "j": {
 				if (is_label(args[0])) {
-					const address = args[0].value;
-
-					const label_position = this.search_entrypoint(
-						address,
-						this.statements,
-					);
-
-					if (label_position === -1)
-						throw new Error(`Could not find label: ${address}`);
+					const label_position = this.get_value(args[0]);
 
 					this.change_pc(label_position + 1);
 				}
@@ -497,19 +523,16 @@ class VM {
 			}
 			case "sw": {
 				if (is_register(args[0]) && is_register(args[1])) {
-					const source = args[0].value;
+					const source = args[0];
 					const destination = args[1].value;
 					const offset = 0; // NOTE: We don't support offset for now
 
-					const sourcePosition = get_register_position(
-						source.name as RegisterName,
-					);
 					const destinationPosition = get_register_position(
 						destination.name as RegisterName,
 					);
 
 					const address = this.registers[destinationPosition] + offset;
-					this.change_memory(address, this.registers[sourcePosition]);
+					this.change_memory(address, this.get_value(source));
 				}
 				break;
 			}
@@ -535,6 +558,10 @@ class VM {
 				}
 				break;
 			}
+			case "halt": {
+				this.halt();
+				break;
+			}
 			default:
 				throw new Error(`Unsupported instruction: ${kind}`);
 		}
@@ -548,6 +575,11 @@ class VM {
 			(statement) =>
 				statement.kind === "label" && statement.value === entrypoint,
 		);
+	}
+
+	private halt() {
+		this.halted = true;
+		this.updates.halted = true;
 	}
 
 	private change_register(register_name: RegisterName, value: number) {
@@ -568,13 +600,70 @@ class VM {
 		this.pc = value;
 		this.updates.pc = value;
 	}
+
+	/**
+	 * Retrieves the numeric value associated with a given instruction argument.
+	 * This method handles different types of instruction arguments:
+	 * - Immediate values are returned directly.
+	 * - Register values are retrieved from the `registers` array based on the register's position.
+	 * - Label values are resolved to their corresponding entry point position within the `statements` array.
+	 *
+	 * @param {InstructionArgument} value - The instruction argument from which to retrieve the value.
+	 * This can be an immediate value, a register, or a label.
+	 *
+	 * @returns {number} The numeric value of the instruction argument.
+	 *
+	 * @throws {Error} Throws an error if the label is not found in `statements` or if the argument type is unsupported.
+	 *
+	 * @private
+	 */
+	private get_value(value: InstructionArgument): number {
+		if (is_immediate(value)) {
+			return value.value;
+		}
+		if (is_register(value)) {
+			return this.registers[
+				get_register_position(value.value.name as RegisterName)
+			];
+		}
+		if (is_label(value)) {
+			const label_position = this.search_entrypoint(
+				value.value,
+				this.statements,
+			);
+			if (label_position === -1)
+				throw new Error(`Could not find label: ${value.value}`);
+
+			return label_position;
+		}
+
+		throw new Error(`Unsupported value type: ${value}`);
+	}
+
+	public reset() {
+		this.registers = new Array(32).fill(0);
+		this.pc = 0;
+		this.memory.fill(0);
+		this.stack.fill(0);
+		this.statements = [];
+		this.variable_lookup = new Map();
+		this.halted = false;
+	}
+
+	public is_halted() {
+		return this.halted;
+	}
+
+	public is_interrupted() {
+		return this.interrupted;
+	}
 }
 
 // TODO: Move to the lib later
 function variable_to_bytes({ type, value }: Variable): Uint8Array {
 	switch (type) {
 		case "Asciiz": {
-			if (is_string(value)) return new TextEncoder().encode(value.value);
+			if (is_string(value)) return new CStringEncoder().encode(value.value);
 			throw new Error("Unsupported value type");
 		}
 		case "Space": {

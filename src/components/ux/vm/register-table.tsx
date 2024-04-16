@@ -78,14 +78,14 @@ export const RegisterTable: FC<RegisterTableProps> = ({
 	}, [values]);
 
 	const formatValue = (value: number) => {
+		let formattedValue: string;
 		switch (valueFormat) {
 			case "hex":
-				return `0x${value.toString(16).padStart(8, "0")}`;
+				formattedValue = (value >>> 0).toString(16).toUpperCase();
+				return `0x${formattedValue.padStart(8, "0")}`;
 			case "bin":
-				return value
-					.toString(2)
-					.padStart(32, "0")
-					.replace(/(.{8})/g, "$1 ");
+				formattedValue = (value >>> 0).toString(2);
+				return formattedValue.padStart(32, "0").replace(/(.{8})/g, "$1 ");
 			default:
 				return value.toString();
 		}
