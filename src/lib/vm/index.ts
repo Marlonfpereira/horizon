@@ -227,7 +227,9 @@ class VM {
 	}
 
 	async loadCode(code: string) {
-		const program: Program = await getAst(code);
+		const { data: program, error } = await getAst(code);
+
+		if (error || !program) throw new Error(error);
 
 		let dataSectionOffset = 0;
 		for (const variable of program.dataSection.variables) {
@@ -433,6 +435,38 @@ class VM {
 					const label_position = this.get_value(args[1]);
 
 					if (operation(source_value)) this.change_pc(label_position + 1);
+					break;
+				}
+
+				throw new Error(`Invalid arguments: ${args.map((arg) => arg.kind)}`);
+			}
+			case "sne":
+			case "slt":
+			case "sgt":
+			case "sle":
+			case "sge": {
+				if (is_register(args[0])) {
+					const operations = (a: number, b: number) => {
+						switch (kind) {
+							case "sne":
+								return a !== b;
+							case "slt":
+								return a < b;
+							case "sgt":
+								return a > b;
+							case "sle":
+								return a <= b;
+							case "sge":
+								return a >= b;
+						}
+					};
+
+					const source1 = this.get_value(args[1]);
+					const source2 = this.get_value(args[2]);
+
+					if (operations(source1, source2))
+						this.change_register(args[0].value.name as RegisterName, 1);
+
 					break;
 				}
 

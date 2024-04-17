@@ -2,10 +2,15 @@
 
 import { transpileTo } from "@celestial-hub/orions-belt";
 
-export async function transpile(code: string): Promise<string> {
+interface Errorable<T> {
+	data?: T;
+	error?: string;
+}
+
+export async function transpile(code: string): Promise<Errorable<string>> {
 	try {
-		return transpileTo(code);
+		return { data: transpileTo(code) };
 	} catch (error: unknown) {
-		throw new Error(error as string);
+		return { error: (error as Error).message as string };
 	}
 }

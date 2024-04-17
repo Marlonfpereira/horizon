@@ -3,10 +3,15 @@
 import { mipsAst } from "@celestial-hub/orions-belt";
 import type { Program } from "@celestial-hub/orions-belt/mips-ast";
 
-export async function getAst(code: string): Promise<Program> {
+interface Errorable<T> {
+	data?: T;
+	error?: string;
+}
+
+export async function getAst(code: string): Promise<Errorable<Program>> {
 	try {
-		return mipsAst(code) as Program;
+		return { data: mipsAst(code) as Program };
 	} catch (error: unknown) {
-		throw new Error(error as string);
+		return { error: error as string };
 	}
 }

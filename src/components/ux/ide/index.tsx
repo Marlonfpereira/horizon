@@ -36,13 +36,14 @@ export function IDE() {
 	} = useGlobalContext();
 
 	async function transpileCode() {
-		try {
-			const result = await transpile(code);
-			if (result) setResultMIPSCode(result);
-		} catch (error) {
+		const { data, error } = await transpile(code);
+		if (error || !data) {
 			toast.error("An error occurred while transpiling the code.");
-			toast.error((error as Error).message);
+			toast.error(error);
+			return;
 		}
+
+		setResultMIPSCode(data);
 	}
 
 	function loadToVm() {
