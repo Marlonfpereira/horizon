@@ -36,7 +36,9 @@ export function IDE() {
 	} = useGlobalContext();
 
 	async function transpileCode() {
-		const { data, error } = await transpile(code);
+		let fix = code.replace(/[\r]+/gm, "")
+		
+		const { data, error } = await transpile(fix);
 		if (error || !data) {
 			toast.error("An error occurred while transpiling the code.");
 			toast.error(error);
